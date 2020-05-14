@@ -1,6 +1,7 @@
 import hashlib
 import binascii
-import sys
+import sys, os
+import hmac
 
 
 if sys.version_info < (3, 6):
@@ -11,14 +12,27 @@ if sys.version_info < (3, 6):
         warn("sha3 is not working!")
 
 
-class MerkleTools(object):
-    def __init__(self, hash_type="sha256"):
+class secMerkleTools(object):
+    def __init__(self, hash_type="sha256", isSecure = False, key = None):
         hash_type = hash_type.lower()
-        if hash_type in ['sha256', 'md5', 'sha224', 'sha384', 'sha512',
-                         'sha3_256', 'sha3_224', 'sha3_384', 'sha3_512']:
-            self.hash_function = getattr(hashlib, hash_type)
+        self.secureTree = isSecure
+        if self.secureTree:
+            if key == None:
+                print('Key not specified, generating a random 128 bit KEY:')
+                self.defaultKey = os.urandom(16)
+                print('Key is : {}'.format(self._to_hex(self.defaultKey)))
+            else:
+                print('Using supplied key')
+                self.defaultKey = key
+            if hash_type in ['sha256', 'md5', 'sha224', 'sha384', 'sha512',
+                             'sha3_256', 'sha3_224', 'sha3_384', 'sha3_512']:
+                self.hash_function = getattr(hmac, hash_type)
         else:
-            raise Exception('`hash_type` {} nor supported'.format(hash_type))
+            if hash_type in ['sha256', 'md5', 'sha224', 'sha384', 'sha512',
+                             'sha3_256', 'sha3_224', 'sha3_384', 'sha3_512']:
+                self.hash_function = getattr(hashlib, hash_type)
+            else:
+                raise Exception('`hash_type` {} nor supported'.format(hash_type))
 
         self.reset_tree()
 
@@ -68,12 +82,29 @@ class MerkleTools(object):
             new_level.append(solo_leave)
         self.levels = [new_level, ] + self.levels  # prepend new level
 
+    def _calculate_next_level_sec(self):
+        solo_leave = None
+        N = len(self.levels[0])  # number of leaves on the level
+        if N % 2 == 1:  # if odd number of leaves on the level
+            solo_leave = self.levels[0][-1]
+            N -= 1
+
+        new_level = []
+        for l, r in zip(self.levels[0][0:N:2], self.levels[0][1:N:2]):
+            new_level.append(self.hash_function(self.key, l + r).digest())
+        if solo_leave is not None:
+            new_level.append(solo_leave)
+        self.levels = [new_level, ] + self.levels  # prepend new level
+
     def make_tree(self):
         self.is_ready = False
         if self.get_leaf_count() > 0:
             self.levels = [self.leaves, ]
             while len(self.levels[0]) > 1:
-                self._calculate_next_level()
+                if self.secureTree:
+                    self._calculate_next_level_sec()
+                else:
+                    self._calculate_next_level()
         self.is_ready = True
 
     def get_merkle_root(self):

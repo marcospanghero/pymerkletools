@@ -9,9 +9,9 @@ install_requires = [
 ]
 
 setup(
-    name='merkletools',
-    version='1.0.4',
-    description='Merkle Tools',
+    name='secmerkletools',
+    version='1.0.1',
+    description='secure HMAC Merkle Tools',
     classifiers=[
         "Intended Audience :: Developers",
         "Intended Audience :: Education",
@@ -22,9 +22,9 @@ setup(
         "Topic :: Software Development :: Libraries",
         "Topic :: Software Development :: Libraries :: Python Modules"
     ],
-    url='https://github.com/Tierion/pymerkletools',
-    author='Eder Santana',
-    keywords='merkle tree, blockchain, tierion',
+    url='https://github.com/marcospanghero/pymerkletools',
+    author='Marco Spanghero',
+    keywords='hmac, merkle tree, blockchain, marcospanghero',
     license="MIT",
     packages=find_packages(exclude=["tests"]),
     include_package_data=False,
