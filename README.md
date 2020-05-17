@@ -1,7 +1,6 @@
-# pymerkletools
-[![PyPI version](https://badge.fury.io/py/merkletools.svg)](https://badge.fury.io/py/merkletools) [![Build Status](https://travis-ci.org/Tierion/pymerkletools.svg?branch=master)](https://travis-ci.org/Tierion/pymerkletools)
-
-This is a Python port of [merkle-tools](https://github.com/tierion/merkle-tools).
+# secpymerkletools
+Fork of the original pymerkel tools from [merkle-tools](https://github.com/Tierion/pymerkletools). This fork supports
+ the possibility of using HMAC in addition of the original plain hash
 
 Tools for creating Merkle trees, generating merkle proofs, and verification of merkle proofs.
 

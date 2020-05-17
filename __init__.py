@@ -3,37 +3,38 @@ import binascii
 import sys, os
 import hmac
 
-
-if sys.version_info < (3, 6):
-    try:
-        import sha3
-    except:
-        from warnings import warn
-        warn("sha3 is not working!")
+try:
+    import sha3
+except:
+    from warnings import warn
+    warn("sha3 is not working!")
 
 
 class secMerkleTools(object):
-    def __init__(self, hash_type="sha256", isSecure = False, key = None):
+    def __init__(self, hash_type="sha256", isSecure=False, key=None):
         hash_type = hash_type.lower()
         self.secureTree = isSecure
         if self.secureTree:
-            if key == None:
+            if key is None:
                 print('Key not specified, generating a random 128 bit KEY:')
-                self.defaultKey = os.urandom(16)
-                print('Key is : {}'.format(self._to_hex(self.defaultKey)))
+                self.key = os.urandom(16)
+                print('Key is : {}'.format(self._to_hex(self.key)))
             else:
-                print('Using supplied key')
-                self.defaultKey = key
+                self.key = key
+                print('Using supplied key {}'.format(self.key))
             if hash_type in ['sha256', 'md5', 'sha224', 'sha384', 'sha512',
                              'sha3_256', 'sha3_224', 'sha3_384', 'sha3_512']:
-                self.hash_function = getattr(hmac, hash_type)
+                self.digestmod=hash_type
+                self.hash_function = getattr(hashlib, hash_type)
+            else:
+                raise Exception('`hash_type` {} nor supported'.format(hash_type))
         else:
             if hash_type in ['sha256', 'md5', 'sha224', 'sha384', 'sha512',
                              'sha3_256', 'sha3_224', 'sha3_384', 'sha3_512']:
                 self.hash_function = getattr(hashlib, hash_type)
+                self.key = None
             else:
                 raise Exception('`hash_type` {} nor supported'.format(hash_type))
-
         self.reset_tree()
 
     def _to_hex(self, x):
@@ -53,11 +54,15 @@ class secMerkleTools(object):
         if not isinstance(values, tuple) and not isinstance(values, list):
             values = [values]
         for v in values:
+            value = v
             if do_hash:
-                v = v.encode('utf-8')
-                v = self.hash_function(v).hexdigest()
-            v = bytearray.fromhex(v)
-            self.leaves.append(v)
+                if self.secureTree:
+                    hash_v = hmac.new(self.key, v.encode('utf-8'), digestmod=self.digestmod).digest()
+                    #print('Printing HASHED v {} : {}'.format(v, hash_v))
+                else:
+                    hash_v = self.hash_function(v.encode('utf-8')).digest()
+            print('Leaf {}: {}'.format(value, self._to_hex(hash_v)))
+            self.leaves.append(hash_v)
 
     def get_leaf(self, index):
         return self._to_hex(self.leaves[index])
@@ -90,21 +95,31 @@ class secMerkleTools(object):
             N -= 1
 
         new_level = []
+        c_lvl = 0
         for l, r in zip(self.levels[0][0:N:2], self.levels[0][1:N:2]):
-            new_level.append(self.hash_function(self.key, l + r).digest())
+            new_level.append(hmac.new(self.key, str(l + r).encode('utf-8'), digestmod=self.digestmod).digest())
         if solo_leave is not None:
             new_level.append(solo_leave)
         self.levels = [new_level, ] + self.levels  # prepend new level
+
+    def _print_levels(self, levels):
+        r_c = 0
+        r_l = 0
+        for line in levels:
+            for col in line:
+                print('[{}][{}] - {}'.format(r_l, r_c, self._to_hex(col)))
+                r_c += 1
+            r_l += 1
+            r_c = 0
+            print()
 
     def make_tree(self):
         self.is_ready = False
         if self.get_leaf_count() > 0:
             self.levels = [self.leaves, ]
             while len(self.levels[0]) > 1:
-                if self.secureTree:
-                    self._calculate_next_level_sec()
-                else:
-                    self._calculate_next_level()
+                self._calculate_next_level()
+            #self._print_levels(self.levels)
         self.is_ready = True
 
     def get_merkle_root(self):
@@ -144,6 +159,18 @@ class secMerkleTools(object):
         else:
             proof_hash = target_hash
             for p in proof:
+                # if self.secureTree:
+                #     try:
+                #         # the sibling is a left node
+                #         sibling = bytearray.fromhex(p['left'])
+                #         proof_hash = hmac.new(self.key, str(sibling + proof_hash).encode('utf-8'),
+                #                               digestmod=self.digestmod).digest()
+                #     except:
+                #         # the sibling is a right node
+                #         sibling = bytearray.fromhex(p['right'])
+                #         proof_hash = hmac.new(self.key, str(proof_hash + sibling).encode('utf-8'),
+                #                               digestmod=self.digestmod).digest()
+                # else:
                 try:
                     # the sibling is a left node
                     sibling = bytearray.fromhex(p['left'])
@@ -152,4 +179,9 @@ class secMerkleTools(object):
                     # the sibling is a right node
                     sibling = bytearray.fromhex(p['right'])
                     proof_hash = self.hash_function(proof_hash + sibling).digest()
+                print('Proof {} - proofhash: {}'.format(p, self._to_hex(proof_hash)))
             return proof_hash == merkle_root
+
+    def get_key(self):
+        return self.key
+
