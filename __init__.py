@@ -2,6 +2,8 @@ import hashlib
 import binascii
 import sys, os
 import hmac
+from tqdm import tqdm
+from collections import deque
 
 try:
     import sha3
@@ -64,8 +66,11 @@ class secMerkleTools(object):
             print('Leaf {}: {}'.format(value, self._to_hex(hash_v)))
             self.leaves.append(hash_v)
 
-    def get_leaf(self, index):
-        return self._to_hex(self.leaves[index])
+    def get_leaf(self, index, isRaw=False):
+        if isRaw==True:
+            return self.leaves[index]
+        else:
+            return self._to_hex(self.leaves[index])
 
     def get_leaf_count(self):
         return len(self.leaves)
@@ -75,34 +80,57 @@ class secMerkleTools(object):
 
     def _calculate_next_level(self):
         solo_leave = None
+        buffer = deque()
         N = len(self.levels[0])  # number of leaves on the level
         if N % 2 == 1:  # if odd number of leaves on the level
             solo_leave = self.levels[0][-1]
             N -= 1
 
-        new_level = []
+        new_level = deque()
         for l, r in zip(self.levels[0][0:N:2], self.levels[0][1:N:2]):
             new_level.append(self.hash_function(l+r).digest())
         if solo_leave is not None:
             new_level.append(solo_leave)
-        self.levels = [new_level, ] + self.levels  # prepend new level
+        buffer.appendleft(new_level)
+        self.levels = buffer
 
     def _calculate_next_level_sec(self):
         solo_leave = None
+        buffer = deque()
+        
         N = len(self.levels[0])  # number of leaves on the level
         if N % 2 == 1:  # if odd number of leaves on the level
             solo_leave = self.levels[0][-1]
             N -= 1
 
-        new_level = []
+        new_level = deque()
         c_lvl = 0
         for l, r in zip(self.levels[0][0:N:2], self.levels[0][1:N:2]):
             new_level.append(hmac.new(self.key, str(l + r).encode('utf-8'), digestmod=self.digestmod).digest())
         if solo_leave is not None:
             new_level.append(solo_leave)
-        self.levels = [new_level, ] + self.levels  # prepend new level
 
-    def _print_levels(self, levels):
+        buffer.appendleft(new_level)
+        self.levels = buffer
+
+    def _calculate_next_list(self, anchor):
+        N = self.get_leaf_count()
+        buffer = deque()
+        if self.secureTree:
+            initial_element = hmac.new(self.key, str(self.get_leaf(0, isRaw=True) + anchor).encode('utf-8'),
+                                       digestmod=self.digestmod).digest()
+        else:
+            initial_element = self.hash_function(self.get_leaf(0, isRaw=True) + anchor).digest()
+        buffer.appendleft(initial_element)
+        for k in tqdm(range(1, N)):
+            if self.secureTree:
+                list_element = hmac.new(self.key, str(buffer[k-1] + self.get_leaf(k, isRaw=True)).encode('utf-8'),
+                                        digestmod=self.digestmod).digest()
+            else:
+                list_element = self.hash_function(buffer[k-1] + self.get_leaf(k, isRaw=True)).digest()
+            buffer.appendleft(list_element)
+        self.levels = buffer
+    def _print_tree(self, levels):
         r_c = 0
         r_l = 0
         for line in levels:
@@ -113,13 +141,26 @@ class secMerkleTools(object):
             r_c = 0
             print()
 
+    def _print_list(self, levels):
+        r_l = 0
+        for element in levels:
+            print('[{}] - {}'.format(r_l, self._to_hex(element)))
+            r_l += 1
+
     def make_tree(self):
         self.is_ready = False
         if self.get_leaf_count() > 0:
             self.levels = [self.leaves, ]
             while len(self.levels[0]) > 1:
                 self._calculate_next_level()
-            #self._print_levels(self.levels)
+            #self._print_tree(self.levels)
+        self.is_ready = True
+
+    def make_list(self, anchor=None):
+        self.is_ready = False
+        self.levels = list()
+        self._calculate_next_list(anchor=anchor)
+        self._print_list(self.levels)
         self.is_ready = True
 
     def get_merkle_root(self):
