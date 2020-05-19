@@ -1,6 +1,6 @@
 import hashlib
 import binascii
-import sys, os
+import  os
 import hmac
 from tqdm import tqdm
 from collections import deque
@@ -46,25 +46,27 @@ class secMerkleTools(object):
             return binascii.hexlify(x)
 
     def reset_tree(self):
-        self.leaves = list()
+        self.leaves = deque()
         self.levels = None
         self.is_ready = False
 
-    def add_leaf(self, values, do_hash=False):
+    def add_leaf(self, values, do_hash=False, do_seq=True):
+        print('Adding Leafs')
         self.is_ready = False
+        seq = 0
         # check if single leaf
         if not isinstance(values, tuple) and not isinstance(values, list):
             values = [values]
-        for v in values:
-            value = v
+        for v in tqdm(values):
             if do_hash:
                 if self.secureTree:
-                    hash_v = hmac.new(self.key, v.encode('utf-8'), digestmod=self.digestmod).digest()
+                    hash_v = hmac.new(self.key, str(v + seq).encode('utf-8'), digestmod=self.digestmod).digest()
                     #print('Printing HASHED v {} : {}'.format(v, hash_v))
                 else:
-                    hash_v = self.hash_function(v.encode('utf-8')).digest()
-            print('Leaf {}: {}'.format(value, self._to_hex(hash_v)))
+                    hash_v = self.hash_function(str(v + seq).encode('utf-8')).digest()
+            #print('Leaf {}: {}'.format(value, self._to_hex(hash_v)))
             self.leaves.append(hash_v)
+            seq += 1
 
     def get_leaf(self, index, isRaw=False):
         if isRaw==True:
@@ -97,7 +99,7 @@ class secMerkleTools(object):
     def _calculate_next_level_sec(self):
         solo_leave = None
         buffer = deque()
-        
+
         N = len(self.levels[0])  # number of leaves on the level
         if N % 2 == 1:  # if odd number of leaves on the level
             solo_leave = self.levels[0][-1]
@@ -130,6 +132,7 @@ class secMerkleTools(object):
                 list_element = self.hash_function(buffer[k-1] + self.get_leaf(k, isRaw=True)).digest()
             buffer.appendleft(list_element)
         self.levels = buffer
+
     def _print_tree(self, levels):
         r_c = 0
         r_l = 0
@@ -157,10 +160,11 @@ class secMerkleTools(object):
         self.is_ready = True
 
     def make_list(self, anchor=None):
+        print('Making List')
         self.is_ready = False
         self.levels = list()
         self._calculate_next_list(anchor=anchor)
-        self._print_list(self.levels)
+        #self._print_list(self.levels)
         self.is_ready = True
 
     def get_merkle_root(self):
@@ -191,6 +195,14 @@ class secMerkleTools(object):
                 proof.append({sibling_pos: sibling_value})
                 index = int(index / 2.)
             return proof
+
+    def get_chain_element(self, index):
+        if self.levels is None:
+            return None
+        elif not self.is_ready or index > len(self.levels) - 1 or index < 0:
+            return None
+        else:
+            return self._to_hex(self.levels[index])
 
     def validate_proof(self, proof, target_hash, merkle_root):
         merkle_root = bytearray.fromhex(merkle_root)
