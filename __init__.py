@@ -60,10 +60,10 @@ class secMerkleTools(object):
         for v in tqdm(values):
             if do_hash:
                 if self.secureTree:
-                    hash_v = hmac.new(self.key, str(v + seq).encode('utf-8'), digestmod=self.digestmod).digest()
+                    hash_v = hmac.new(self.key, str(v).encode('utf-8'), digestmod=self.digestmod).digest()
                     #print('Printing HASHED v {} : {}'.format(v, hash_v))
                 else:
-                    hash_v = self.hash_function(str(v + seq).encode('utf-8')).digest()
+                    hash_v = self.hash_function(str(v).encode('utf-8')).digest()
             #print('Leaf {}: {}'.format(value, self._to_hex(hash_v)))
             self.leaves.append(hash_v)
             seq += 1
