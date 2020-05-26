@@ -1,13 +1,18 @@
 import hashlib
 import binascii
-import  os
+import os
 import hmac
 from tqdm import tqdm
 from collections import deque
+import math
+import itertools
+
+
+from struct import *
 
 try:
     import sha3
-except:
+except ModuleNotFoundError:
     from warnings import warn
     warn("sha3 is not working!")
 
@@ -26,7 +31,7 @@ class secMerkleTools(object):
                 print('Using supplied key {}'.format(self.key))
             if hash_type in ['sha256', 'md5', 'sha224', 'sha384', 'sha512',
                              'sha3_256', 'sha3_224', 'sha3_384', 'sha3_512']:
-                self.digestmod=hash_type
+                self.digestmod = hash_type
                 self.hash_function = getattr(hashlib, hash_type)
             else:
                 raise Exception('`hash_type` {} nor supported'.format(hash_type))
@@ -48,6 +53,7 @@ class secMerkleTools(object):
     def reset_tree(self):
         self.leaves = deque()
         self.levels = None
+        self.cb = []
         self.is_ready = False
 
     def add_leaf(self, values, do_hash=False, do_seq=True):
@@ -58,18 +64,22 @@ class secMerkleTools(object):
         if not isinstance(values, tuple) and not isinstance(values, list):
             values = [values]
         for v in tqdm(values):
+            if do_seq is True:
+                payload = pack('>I',v) + pack('>I', seq)
+            else:
+                payload = pack('>I',v)
             if do_hash:
                 if self.secureTree:
-                    hash_v = hmac.new(self.key, str(v).encode('utf-8'), digestmod=self.digestmod).digest()
-                    #print('Printing HASHED v {} : {}'.format(v, hash_v))
+                    hash_v = hmac.new(self.key, payload, digestmod=self.digestmod).digest()
+                    #print('Printing HASHED v {} : {}'.format(payload, hash_v))
                 else:
-                    hash_v = self.hash_function(str(v).encode('utf-8')).digest()
-            #print('Leaf {}: {}'.format(value, self._to_hex(hash_v)))
+                    hash_v = self.hash_function(payload).digest()
+            print('[{}]\t[{}] Leaf {}: \t{}'.format(seq, v, payload, self._to_hex(hash_v)))
             self.leaves.append(hash_v)
             seq += 1
 
     def get_leaf(self, index, isRaw=False):
-        if isRaw==True:
+        if isRaw == True:
             return self.leaves[index]
         else:
             return self._to_hex(self.leaves[index])
@@ -79,6 +89,9 @@ class secMerkleTools(object):
 
     def get_tree_ready_state(self):
         return self.is_ready
+
+    def get_cb_vector(self):
+        return self.cb
 
     def _calculate_next_level(self):
         solo_leave = None
@@ -90,7 +103,7 @@ class secMerkleTools(object):
 
         new_level = deque()
         for l, r in zip(self.levels[0][0:N:2], self.levels[0][1:N:2]):
-            new_level.append(self.hash_function(l+r).digest())
+            new_level.append(self.hash_function(l + r).digest())
         if solo_leave is not None:
             new_level.append(solo_leave)
         buffer.appendleft(new_level)
@@ -115,7 +128,8 @@ class secMerkleTools(object):
         buffer.appendleft(new_level)
         self.levels = buffer
 
-    def _calculate_next_list(self, anchor):
+
+    def _calculate_next_list(self, anchor, hasCB = False, granularityCB = 1):
         N = self.get_leaf_count()
         buffer = deque()
         if self.secureTree:
@@ -126,12 +140,43 @@ class secMerkleTools(object):
         buffer.appendleft(initial_element)
         for k in tqdm(range(1, N)):
             if self.secureTree:
-                list_element = hmac.new(self.key, str(buffer[k-1] + self.get_leaf(k, isRaw=True)).encode('utf-8'),
+                list_element = hmac.new(self.key, str(buffer[k - 1] + self.get_leaf(k, isRaw=True)).encode('utf-8'),
                                         digestmod=self.digestmod).digest()
             else:
-                list_element = self.hash_function(buffer[k-1] + self.get_leaf(k, isRaw=True)).digest()
+                list_element = self.hash_function(buffer[k - 1] + self.get_leaf(k, isRaw=True)).digest()
             buffer.appendleft(list_element)
+            print(k, list_element, hex(list_element[-1]))
+            if hasCB :
+                self.cb.append(hex(list_element[-1]))
         self.levels = buffer
+
+    def generate_cb_vector(self, is_equally_spaced=True, granularity_cb = 100):
+        N = self.get_leaf_count()
+        slices_list = []
+        '''Check if N is a power of 2, if not raise exception'''
+        if is_equally_spaced:
+            for k in range(0, N - 1, granularity_cb):
+                self.cb.append(hex(self.levels[k][-1]))
+            return
+        else:
+            if math.log(N, 2).is_integer():
+                intervals = int(math.log(N, 2))
+                for i in range(1, intervals + 1):
+                    slice = list(itertools.islice(self.levels,
+                                                             int(pow(2,i-1) - 1),
+                                                             int(math.pow(2, i)) - 1))
+                    # print('[{} {}]'.format(i, len(slice)), slice)
+                    byte_vector = []
+                    for element in slice:
+                        byte_vector.append(hex(element[-1]))
+                    slices_list.append(byte_vector)
+                    print('[{} {}]'.format(i, len(byte_vector)), byte_vector)
+            else:
+                raise Exception('Warning', 'The list has not integer log2 elements. Cannot use this method')
+                return
+        return slices_list
+
+
 
     def _print_tree(self, levels):
         r_c = 0
@@ -156,15 +201,15 @@ class secMerkleTools(object):
             self.levels = [self.leaves, ]
             while len(self.levels[0]) > 1:
                 self._calculate_next_level()
-            #self._print_tree(self.levels)
+            # self._print_tree(self.levels)
         self.is_ready = True
 
-    def make_list(self, anchor=None):
+    def make_list(self, anchor=None, hasCB = False, granularityCB = 100):
         print('Making List')
         self.is_ready = False
         self.levels = list()
-        self._calculate_next_list(anchor=anchor)
-        #self._print_list(self.levels)
+        self._calculate_next_list(anchor=anchor, hasCB=hasCB, granularityCB=granularityCB)
+        # self._print_list(self.levels)
         self.is_ready = True
 
     def get_merkle_root(self):
@@ -179,7 +224,7 @@ class secMerkleTools(object):
     def get_proof(self, index):
         if self.levels is None:
             return None
-        elif not self.is_ready or index > len(self.leaves)-1 or index < 0:
+        elif not self.is_ready or index > len(self.leaves) - 1 or index < 0:
             return None
         else:
             proof = []
@@ -237,4 +282,3 @@ class secMerkleTools(object):
 
     def get_key(self):
         return self.key
-
