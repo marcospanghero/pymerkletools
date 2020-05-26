@@ -132,12 +132,12 @@ class secMerkleTools(object):
         self.levels = buffer
 
 
-    def _calculate_next_list(self, anchor, rotate_frequency=1):
+    def _calculate_next_list(self, seed, rotate_frequency=1):
         N = int(self.get_leaf_count() / rotate_frequency)
         buffer = deque()
-        initial_element = self.hash_function(anchor).digest()
+        initial_element = self.hash_function(seed).digest()
         buffer.append(initial_element)
-        for k in tqdm(range(1, N+1)):
+        for k in tqdm(range(1, N)):
             list_element = self.hash_function(buffer[k-1]).digest()
             buffer.append(list_element)
         self.levels = buffer
@@ -148,9 +148,9 @@ class secMerkleTools(object):
             N = int(self.get_leaf_count())
             rotate_freq = int(N/K)
             for n in range(0, N):
-                secure_leaf = hmac.new(self.levels[int(n/rotate_freq)], self.leaves[n],
+                secure_leaf = hmac.new(self.levels[K - int(n/rotate_freq) - 1], self.leaves[n],
                                       digestmod=self.digestmod).digest()
-                print('Leaf {}\t: [{}] with key: {} -> {}'.format(n, binascii.hexlify(self.leaves[n]), binascii.hexlify(self.levels[int(n/rotate_freq)]), binascii.hexlify(secure_leaf)))
+                print('Leaf {}\t: [{}] with key: {} -> {}'.format(n, binascii.hexlify(self.leaves[n]), binascii.hexlify(self.levels[K - int(n/rotate_freq) - 1]), binascii.hexlify(secure_leaf)))
                 self.secure_leaves.append(secure_leaf)
 
 
@@ -208,11 +208,11 @@ class secMerkleTools(object):
             # self._print_tree(self.levels)
         self.is_ready = True
 
-    def make_list(self, anchor=None, rotate_frequency=1):
+    def make_list(self, seed=None, rotate_frequency=1):
         print('Making List')
         self.is_ready = False
         self.levels = list()
-        self._calculate_next_list(anchor=anchor, rotate_frequency=rotate_frequency)
+        self._calculate_next_list(seed=seed, rotate_frequency=rotate_frequency)
         if self.secureTree:
             self._calculate_secure_leaves()
         print("levels of list")
@@ -226,7 +226,7 @@ class secMerkleTools(object):
     def get_merkle_root(self):
         if self.is_ready:
             if self.levels is not None:
-                return self._to_hex(self.levels[0][0])
+                return self._to_hex(self.levels[0])
             else:
                 return None
         else:
