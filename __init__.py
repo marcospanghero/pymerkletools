@@ -7,6 +7,12 @@ from collections import deque
 import math
 import itertools
 
+import sys
+import hashlib
+import base64
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.backends import default_backend
 
 from struct import *
 
@@ -18,9 +24,10 @@ except ModuleNotFoundError:
 
 
 class secMerkleTools(object):
-    def __init__(self, hash_type="sha256", isSecure=False, key=None):
+    def __init__(self, hash_type="sha256", isSecure=False, key=None, doSign=False):
         hash_type = hash_type.lower()
         self.secureTree = isSecure
+        self.doSign = doSign
         if self.secureTree:
             if key is None:
                 print('Key not specified, generating a random 128 bit KEY:')
@@ -28,7 +35,7 @@ class secMerkleTools(object):
                 print('Key is : {}'.format(binascii.hexlify(self.key)))
             else:
                 self.key = key
-                print('Using supplied key {}'.format(binascii.hexlify(self.key)))
+                print('Using supplied key RSA')
             if hash_type in ['sha256', 'md5', 'sha224', 'sha384', 'sha512',
                              'sha3_256', 'sha3_224', 'sha3_384', 'sha3_512']:
                 self.digestmod = hash_type
@@ -53,6 +60,7 @@ class secMerkleTools(object):
     def reset_tree(self):
         self.leaves = deque()
         self.secure_leaves = deque()
+        self.sig_levels = None
         self.levels = None
         self.cb = []
         self.is_ready = False
@@ -148,14 +156,25 @@ class secMerkleTools(object):
             buffer.append(list_element)
         self.levels = buffer
 
-    def _calculate_secure_leaves(self, rotate_frequency):
+    def _calculate_signatures(self):
+        N = int(self.get_levels_count())
+        for n in tqdm(range(0, N)):
+            signature = self.key.sign(
+                binascii.hexlify(self.levels[n]),
+                    padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH),
+                    hashes.SHA256())
+            self.sig_levels.append(signature)
 
+    def _calculate_secure_leaves(self, rotate_frequency):
             N = int(self.get_leaf_count())
             K = int(self.get_levels_count())
-            for n in range(0, N):
+            for n in tqdm(range(0, N)):
                 secure_leaf = hmac.new(self.levels[K - int(n/rotate_frequency) - 1], self.leaves[n],
                                       digestmod=self.digestmod).digest()
-                print('Leaf {}\t: [{}] with key: {} -> {}'.format(n, binascii.hexlify(self.leaves[n]), binascii.hexlify(self.levels[K - int(n/rotate_frequency) - 1]), binascii.hexlify(secure_leaf)))
+                # print('Leaf {}\t: [{}] with key: {} -> {}'.format(n, binascii.hexlify(self.leaves[n]),
+                # binascii.hexlify(self.levels[K - int(n/rotate_frequency) - 1]), binascii.hexlify(secure_leaf)))
                 self.secure_leaves.append(secure_leaf)
 
 
@@ -179,7 +198,7 @@ class secMerkleTools(object):
                     for element in slice:
                         byte_vector.append(hex(element[-1]))
                     slices_list.append(byte_vector)
-                    print('[{} {}]'.format(i, len(byte_vector)), byte_vector)
+                    # print('[{} {}]'.format(i, len(byte_vector)), byte_vector)
             else:
                 raise Exception('Warning', 'The list has not integer log2 elements. Cannot use this method')
                 return
@@ -220,6 +239,9 @@ class secMerkleTools(object):
         self._calculate_next_list(seed=seed, rotate_frequency=rotate_frequency)
         if self.secureTree:
             self._calculate_secure_leaves(rotate_frequency=rotate_frequency)
+            if self.doSign:
+                self.sig_levels = list()
+                self._calculate_signatures()
         print("levels of list")
         self._print_list(self.levels)
         print('leaves of list')
@@ -264,6 +286,14 @@ class secMerkleTools(object):
             return None
         else:
             return self._to_hex(self.levels[index])
+
+    def get_sign_chain_element(self, index):
+        if self.sig_levels is None:
+            return None
+        elif not self.is_ready or index > len(self.sig_levels) - 1 or index < 0:
+            return None
+        else:
+            return self._to_hex(self.sig_levels[index])
 
     def validate_proof(self, proof, target_hash, merkle_root):
         merkle_root = bytearray.fromhex(merkle_root)
