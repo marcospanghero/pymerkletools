@@ -112,7 +112,7 @@ class secMerkleTools(object):
     def reset_tree(self):
         self.leaves = deque()
         self.secure_leaves = deque()
-        self.sig_levels = None
+        self.sig_levels = deque()
         self.levels = None
         self.cb = []
         self.is_ready = False
@@ -126,9 +126,9 @@ class secMerkleTools(object):
             values = [values]
         for v in tqdm(values):
             if do_seq is True:
-                payload = pack('>I',v) + pack('>I', seq)
+                payload = v.to_bytes(4, 'big') + seq.to_bytes(4, 'big')
             else:
-                payload = pack('>I',v)
+                payload = v.to_bytes(4, 'big')
             if do_hash:
                 hash_v = self.hash_function(payload).digest()
                 # print('[{}]\t[{}] Leaf {}: \t{}'.format(seq, v, payload, self._to_hex(hash_v)))
@@ -198,33 +198,37 @@ class secMerkleTools(object):
         self.levels = buffer
 
 
-    def _calculate_next_list(self, seed, rotate_frequency):
-        N = int(self.get_leaf_count() / rotate_frequency)
+    def _calculate_next_list(self, seed):
+        N = int(self.get_leaf_count())
         buffer = deque()
         initial_element = self.hash_function(seed).digest()
         buffer.append(initial_element)
-        for k in tqdm(range(1, N+1)):
+        print('\t Making hashes')
+        for k in tqdm(range(1, N)):
             list_element = self.hash_function(buffer[k-1]).digest()
             buffer.append(list_element)
         self.levels = buffer
 
-    def _calculate_signatures(self):
-        N = int(self.get_levels_count())
-        for n in tqdm(range(0, N)):
+    def _calculate_signatures(self, rotate_frequency):
+        K = int(self.get_levels_count() / rotate_frequency)
+        N = self.get_levels_count()
+        print('Signing leafs')
+        for n in tqdm(range(N-1, 0, -int(N/K))):
             signature = self.private_key.sign(
                 self.levels[n],
                     padding.PSS(
                     mgf=padding.MGF1(hashes.SHA256()),
                     salt_length=padding.PSS.MAX_LENGTH),
                     hashes.SHA256())
-            print("\t Level: {} {} \n Signa: {}".format(self.levels[n], binascii.hexlify(self.levels[n]), signature))
-            self.sig_levels.append(signature)
+            # print("\t Level: {} {} \n Signa: {}".format(self.levels[n], binascii.hexlify(self.levels[n]), binascii.hexlify(signature)))
+            self.sig_levels.appendleft(signature)
 
-    def _calculate_secure_leaves(self, rotate_frequency):
+    def _calculate_secure_leaves(self):
             N = int(self.get_leaf_count())
             K = int(self.get_levels_count())
+            print('\t Securing leaves')
             for n in tqdm(range(0, N)):
-                secure_leaf = hmac.new(self.levels[K - int(n/rotate_frequency) - 1], self.leaves[n],
+                secure_leaf = hmac.new(self.levels[K - n - 1], self.leaves[n],
                                       digestmod=self.digestmod).digest()
                 # print('Leaf {}\t: [{}] with key: {} -> {}'.format(n, binascii.hexlify(self.leaves[n]),
                 # binascii.hexlify(self.levels[K - int(n/rotate_frequency) - 1]), binascii.hexlify(secure_leaf)))
@@ -289,18 +293,19 @@ class secMerkleTools(object):
         print('Making List')
         self.is_ready = False
         self.levels = list()
-        self._calculate_next_list(seed=seed, rotate_frequency=rotate_frequency)
+        self._calculate_next_list(seed=seed)
         if self.secureTree:
-            self._calculate_secure_leaves(rotate_frequency=rotate_frequency)
+            self._calculate_secure_leaves()
             if self.doSign:
-                self.sig_levels = list()
-                self._calculate_signatures()
-        print("levels of list")
-        self._print_list(self.levels)
-        print('leaves of list')
-        self._print_list(self.leaves)
-        print('secure leaves of list')
-        self._print_list(self.secure_leaves)
+                self._calculate_signatures(rotate_frequency=rotate_frequency)
+        #print("levels of list")
+        #self._print_list(self.levels)
+        #print('leaves of list')
+        #self._print_list(self.leaves)
+        #print('signatures of list')
+        #self._print_list(self.sig_levels)
+        #print('secure leaves of list')
+        #self._print_list(self.secure_leaves)
         self.is_ready = True
 
     def get_merkle_root(self):
